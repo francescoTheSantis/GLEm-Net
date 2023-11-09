@@ -1,4 +1,4 @@
-from sklearn.preprocessing import StandardScaler, LabelEncoder, MinMaxScaler, OneHotEncoder
+from sklearn.preprocessing import StandardScaler, OrdinalEncoder, MinMaxScaler, OneHotEncoder
 from sklearn.model_selection import train_test_split
 import pandas as pd
 import numpy as np
@@ -7,8 +7,6 @@ import torch.nn as nn
 from math import floor
 import os
 import matplotlib.pyplot as plt
-
-
 
 class GlemNet:
 
@@ -24,7 +22,8 @@ class GlemNet:
         self.argument_check()
         self.loaded_train = None
         self.loaded_val = None
-        self.loaded_test = None
+        self.X_test = None
+        self.y_test = None
         self.model = None
         self.cat_cardinality = None
         self.loss = None
@@ -58,13 +57,14 @@ class GlemNet:
 
 
     # preprocessing and train/val/test split
-    def preprocessing(self, numerical_preprocessing = 'standardize', categorical_preprocessing = 'label_encoded', splits = [0.7, 0.1, 0.2], random_state=42):
+    def preprocessing(self, numerical_preprocessing = 'standardize', categorical_preprocessing = 'ordinal_encoder', splits = [0.7, 0.1, 0.2], random_state=42):
 
         # params check
         if numerical_preprocessing not in ['standardize','normalize']:
-            ValueError('numerical_preprocessing can be either standardize or normalize!')
-        if categorical_preprocessing not in ['label_encoder','one_hot_encoder']:
-            ValueError('categorical_preprocessing can be either label_encoder or one_hot_encoder!')
+            raise ValueError('numerical_preprocessing can be either standardize or normalize!')
+
+        if categorical_preprocessing not in ['ordinal_encoder','one_hot_encoder']:
+            raise ValueError('categorical_preprocessing can be either ordinal_encoder or one_hot_encoder!')
 
 
         # a list containing the cardinality of each categorical variable is created
@@ -88,36 +88,30 @@ class GlemNet:
             self.df = pd.concat([one_hot_df.reset_index(), self.df[self.numerical_cols + [self.label]].reset_index()],
                               axis=1).drop(columns=['index', 'index'])
 
+        elif categorical_preprocessing == 'ordinal_encoder':
+            ord_encoder = OrdinalEncoder()
+            for col in self.categorical_cols:
+                if col in self.categorical_cols:
+                    self.df[col] = ord_encoder.fit_transform(self.df[col].to_numpy().reshape(-1,1)).squeeze()
+
 
         # split the data into train/val/test
-        train_val, test = train_test_split(self.df, test_size=splits[-1], random_state=random_state)
+        train_val, test = train_test_split(self.df, test_size=splits[-1], random_state=random_state, stratify=self.df[self.label])
 
         if splits[-2] > 0:
-            train, val = train_test_split(train_val, test_size=splits[-2], random_state=random_state)
+            train, val = train_test_split(train_val, test_size=splits[-2], random_state=random_state, stratify=train_val[self.label])
         else:
             train = train_val.copy()
             val = None
 
         # set the numerical preprocessing defined by the user: standardization, normalization or None
-        if numerical_preprocessing=='std':
+        if numerical_preprocessing=='standardize':
             scaler = StandardScaler()
-        elif numerical_preprocessing=='norm':
+        elif numerical_preprocessing=='normalize':
             scaler = MinMaxScaler()
 
-        # set the categorical preprocessing defined by the user: one hot or label encoding
-        if categorical_preprocessing == 'label_encoder':
-            lab_encoder = LabelEncoder()
-
         # the scalers are fit using the training set and then used to transform all the different splits
-        for col in self.categorical_cols + self.numerical_cols:
-
-            if categorical_preprocessing == 'label_encoder':
-                if col in self.categorical_cols:
-                    train[col] = lab_encoder.fit_transform(train[col])
-                    if isinstance(val, pd.DataFrame):
-                        val[col] = lab_encoder.transform(val[col])
-                    test[col] = lab_encoder.transform(test[col])
-
+        for col in self.numerical_cols:
             if col in self.numerical_cols:
                 train[col] = scaler.fit_transform(train[col].to_numpy().reshape(-1, 1))
                 if isinstance(val, pd.DataFrame):
@@ -135,7 +129,6 @@ class GlemNet:
         X = torch.tensor(X.to_numpy(), dtype=torch.float32)
         y = data[self.label]
         y = torch.tensor(y.to_numpy(), dtype=torch.float32).view(-1, 1)
-
         loaded_data = torch.utils.data.DataLoader(list(zip(X, y)), batch_size=batch_size, shuffle=shuffle)
         return loaded_data
 
@@ -143,33 +136,27 @@ class GlemNet:
     def load_splits(self, batch_size, shuffle):
         self.loaded_train = self.load_data(self.train, batch_size, shuffle)
         if isinstance(self.val, pd.DataFrame):
-                self.loaded_val = self.load_data(self.val, batch_size, shuffle)
-        self.loaded_test = self.load_data(self.test, batch_size, shuffle)
+                self.loaded_val = self.load_data(self.val, batch_size, False)
 
-
+        self.X_test = self.test.drop(columns=self.label).to_numpy()
+        self.y_test = self.test[self.label].to_numpy()
 
     def create_model(self, neurons_per_layer, hidden_activation='tanh', output_activation='sigmoid', card_reduction=2):
         self.model = MLP_embeddings(neurons_per_layer, self.cat_cardinality, len(self.numerical_cols), hidden_activation, output_activation, card_reduction, self.device).to(self.device)
         self.tuples = self.model.get_tuples()
-
-
 
     def set_loss(self, lambda_coeff = 0, function_dict = {'name':'linear'}, weights = [1,1]):
         self.loss = GroupedLassoPenalty(lambda_coeff, self.tuples, self.model, function_dict, weights, self.task)
 
 
     # Define the training loop
-    def train_model(self, num_epochs, folder_name, optimizer, scheduler, verbose = 0, freeze = True, eps = 1e-3):
+    def train_model(self, num_epochs, folder_path, optimizer, scheduler, verbose = 0, freeze = True, eps = 1e-3):
 
         self.eps = eps
         train_losses = []
         val_losses = []
         norms_list = []
-
         min_loss = np.finfo(np.float64).max
-
-        folder_path = folder_name
-
         to_freeze = []
 
         if not os.path.exists(folder_path):
@@ -236,7 +223,7 @@ class GlemNet:
             train_loss = running_loss / len(self.loaded_train)
             train_losses.append(train_loss)
 
-            if self.loaded_val != None:
+            if isinstance(self.val, pd.DataFrame):
                 val_loss = self.evaluate_model(self.model, self.loaded_val, self.loss, self.device)
                 val_losses.append(val_loss)
                 if val_loss < min_loss:
@@ -261,29 +248,51 @@ class GlemNet:
         epochs = np.arange(np_norms.shape[0]) + 1
 
         # Plot the training and validation loss
-        fig, (ax1, ax2) = plt.subplots(2, 1)
-        fig.set_size_inches(15, 10)
-        ax1.plot(epochs, train_losses, label='Training Loss')
+        if verbose>0:
+            fig, (ax1, ax2) = plt.subplots(2, 1)
+            fig.set_size_inches(15, 10)
+            ax1.plot(epochs, train_losses, label='Training Loss')
+
+            if isinstance(self.val, pd.DataFrame):
+                ax1.plot(epochs, val_losses, label='Validation Loss')
+
+            ax1.set_xlabel('Epoch')
+            ax1.set_ylabel('Loss')
+            ax1.grid()
+            ax1.set_title('Training and Validation Loss during training')
+            ax1.legend()
+
+            for var in range(np_norms.shape[1]):
+                ax2.plot(epochs, np_norms[:, var], label=self.feature_names[var])
+
+            ax2.grid()
+            ax2.set_title('Input vector norms during training')
+            ax2.set_xlabel('Epoch')
+            ax2.set_ylabel('||v_i||_2')
+            ax2.legend()
+            plt.savefig(folder_path + '/norms_vs_losses.png', bbox_inches='tight')
+
 
         if isinstance(self.val, pd.DataFrame):
-            ax1.plot(epochs, val_losses, label='Validation Loss')
+            columns = ['epochs', 'training loss', 'validation loss']
+        else:
+            columns = ['epochs', 'training loss']
 
-        ax1.set_xlabel('Epoch')
-        ax1.set_ylabel('Loss')
-        ax1.grid()
-        ax1.set_title('Training and Validation Loss during training')
-        ax1.legend()
+        training_info = pd.DataFrame(columns=columns)
 
-        for var in range(np_norms.shape[1]):
-            ax2.plot(epochs, np_norms[:, var], label=self.feature_names[var])
+        training_info['epochs'] = epochs
+        training_info['training loss'] = train_losses
 
-        ax2.grid()
-        ax2.set_title('Input vector norms during training')
-        ax2.set_xlabel('Epoch')
-        ax2.set_ylabel('||v_i||_2')
-        ax2.legend()
-        plt.savefig(folder_path + '/norms_vs_losses.png', bbox_inches='tight')
-        return train_losses, val_losses, np_norms, epochs
+        if isinstance(self.val, pd.DataFrame):
+            training_info['validation loss'] = val_losses
+
+        training_info.to_csv(folder_path+'/training_results.csv')
+
+        norms_info = pd.DataFrame(np_norms)
+        norms_info.columns = self.feature_names
+        norms_info['epochs'] = list(range(1,num_epochs+1))
+
+        norms_info.to_csv(folder_path+'/norms.csv')
 
 
     def evaluate_model(self, model, data_loader, criterion, device):
@@ -325,6 +334,9 @@ class GlemNet:
         ax.set_xticklabels(ax.get_xticklabels(), rotation=60)
         plt.tight_layout()
         plt.show()
+
+    def predict(self):
+        return self.model(torch.Tensor(self.X_test).to(self.device)).detach().squeeze().cpu().numpy()
 
 
 
@@ -480,7 +492,7 @@ class GroupedLassoPenalty(nn.Module):
 
         elif name == 'exp':
             def composed(x, beta=function_dict['beta'], gamma=function_dict['gamma']):
-                return 1 - torch.exp(-(x ** 2) / beta) + gamma * x
+                return 1 - torch.exp(-(x ** 2) / beta) + gamma * torch.abs(x)
             return composed
 
         elif name == 'tanh':
