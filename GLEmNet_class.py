@@ -8,6 +8,7 @@ from math import floor
 import os
 import matplotlib.pyplot as plt
 
+
 class GlemNet:
 
     def __init__(self, df, categorical_cols, label, task, device):
@@ -37,24 +38,23 @@ class GlemNet:
         if self.task not in ['Regression', 'Classification']:
             raise ValueError("This methodology is meant to solve only classification or regression problems!")
 
-        if isinstance(self.categorical_cols, list)==False:
+        if not isinstance(self.categorical_cols, list):
             raise TypeError("Categorical_cols must be a list of strings!")
 
         for col in self.categorical_cols:
-            if isinstance(col, str)==False:
+            if not isinstance(col, str):
                 raise TypeError("Categorical_cols must be a list of strings containing the names of the columns for which the data are categorical!")
             if col not in self.df.columns:
                 raise ValueError("There is a mismatch between the categorical columns provided and the columns of the dataset!")
 
-        if isinstance(self.label, str)==False:
+        if not isinstance(self.label, str):
             raise TypeError("The label must be a string!")
 
         if self.label not in self.df.columns:
             raise ValueError("The label should be a string representing the name of the independent variable, which must be contained in the dataset provided|")
 
-        if isinstance(self.df, pd.core.frame.DataFrame)==False:
+        if not isinstance(self.df, pd.core.frame.DataFrame):
             raise TypeError("The dataset provided is not a Pandas DataFrame!")
-
 
     # preprocessing and train/val/test split
     def preprocessing(self, numerical_preprocessing = 'standardize', categorical_preprocessing = 'ordinal_encoder', splits = [0.7, 0.1, 0.2], random_state=42):
@@ -66,7 +66,6 @@ class GlemNet:
         if categorical_preprocessing not in ['ordinal_encoder','one_hot_encoder']:
             raise ValueError('categorical_preprocessing can be either ordinal_encoder or one_hot_encoder!')
 
-
         # a list containing the cardinality of each categorical variable is created
         cardinality_cat_list = []
         for col in self.df.columns:
@@ -75,7 +74,8 @@ class GlemNet:
 
         self.cat_cardinality = cardinality_cat_list.copy()
 
-        # the columns of the df are reordered in order to have the categorical columns first and then the numerical ones.
+        # the columns of the df are reordered in order to have the categorical
+        # columns first and then the numerical ones.
         # this operation makes it easier to apply grouped lasso technique in the pytorch model
         new_order = self.categorical_cols + [x for x in self.df.columns if x not in self.categorical_cols]
         self.df = self.df[new_order]
@@ -86,28 +86,29 @@ class GlemNet:
             one_hot_mat = ohe.fit_transform(self.df[self.categorical_cols]).todense()
             one_hot_df = pd.DataFrame(one_hot_mat)
             self.df = pd.concat([one_hot_df.reset_index(), self.df[self.numerical_cols + [self.label]].reset_index()],
-                              axis=1).drop(columns=['index', 'index'])
+                                axis=1).drop(columns=['index', 'index'])
 
         elif categorical_preprocessing == 'ordinal_encoder':
             ord_encoder = OrdinalEncoder()
             for col in self.categorical_cols:
                 if col in self.categorical_cols:
-                    self.df[col] = ord_encoder.fit_transform(self.df[col].to_numpy().reshape(-1,1)).squeeze()
-
+                    self.df[col] = ord_encoder.fit_transform(self.df[col].to_numpy().reshape(-1, 1)).squeeze()
 
         # split the data into train/val/test
-        train_val, test = train_test_split(self.df, test_size=splits[-1], random_state=random_state, stratify=self.df[self.label])
+        train_val, test = train_test_split(self.df, test_size=splits[-1],
+                                           random_state=random_state, stratify=self.df[self.label])
 
         if splits[-2] > 0:
-            train, val = train_test_split(train_val, test_size=splits[-2], random_state=random_state, stratify=train_val[self.label])
+            train, val = train_test_split(train_val, test_size=splits[-2],
+                                          random_state=random_state, stratify=train_val[self.label])
         else:
             train = train_val.copy()
             val = None
 
         # set the numerical preprocessing defined by the user: standardization, normalization or None
-        if numerical_preprocessing=='standardize':
+        if numerical_preprocessing == 'standardize':
             scaler = StandardScaler()
-        elif numerical_preprocessing=='normalize':
+        elif numerical_preprocessing == 'normalize':
             scaler = MinMaxScaler()
 
         # the scalers are fit using the training set and then used to transform all the different splits
@@ -123,34 +124,32 @@ class GlemNet:
         self.val = val
         self.test = test
 
-
     def load_data(self, data, batch_size, shuffle):
-        X = data.drop(columns=self.label)
-        X = torch.tensor(X.to_numpy(), dtype=torch.float32)
+        x = data.drop(columns=self.label)
+        x = torch.tensor(x.to_numpy(), dtype=torch.float32)
         y = data[self.label]
         y = torch.tensor(y.to_numpy(), dtype=torch.float32).view(-1, 1)
-        loaded_data = torch.utils.data.DataLoader(list(zip(X, y)), batch_size=batch_size, shuffle=shuffle)
+        loaded_data = torch.utils.data.DataLoader(list(zip(x, y)), batch_size=batch_size, shuffle=shuffle)
         return loaded_data
-
 
     def load_splits(self, batch_size, shuffle):
         self.loaded_train = self.load_data(self.train, batch_size, shuffle)
         if isinstance(self.val, pd.DataFrame):
-                self.loaded_val = self.load_data(self.val, batch_size, False)
+            self.loaded_val = self.load_data(self.val, batch_size, False)
 
         self.X_test = self.test.drop(columns=self.label).to_numpy()
         self.y_test = self.test[self.label].to_numpy()
 
     def create_model(self, neurons_per_layer, hidden_activation='tanh', output_activation='sigmoid', card_reduction=2):
-        self.model = MLP_embeddings(neurons_per_layer, self.cat_cardinality, len(self.numerical_cols), hidden_activation, output_activation, card_reduction, self.device).to(self.device)
+        self.model = MLP_embeddings(neurons_per_layer, self.cat_cardinality, len(self.numerical_cols),
+                                    hidden_activation, output_activation, card_reduction, self.device).to(self.device)
         self.tuples = self.model.get_tuples()
 
-    def set_loss(self, lambda_coeff = 0, function_dict = {'name':'linear'}, weights = [1,1]):
+    def set_loss(self, lambda_coeff=0, function_dict={'name': 'linear'}, weights=[1, 1]):
         self.loss = GroupedLassoPenalty(lambda_coeff, self.tuples, self.model, function_dict, weights, self.task)
 
-
     # Define the training loop
-    def train_model(self, num_epochs, folder_path, optimizer, scheduler, verbose = 0, freeze = True, eps = 1e-3):
+    def train_model(self, num_epochs, folder_path, optimizer, scheduler, verbose=0, freeze=True, eps=1e-3):
 
         self.eps = eps
         train_losses = []
@@ -211,7 +210,8 @@ class GlemNet:
 
                 if freeze:
                     for i in to_freeze:
-                        self.model.layers[0].weight.grad[:, i] = torch.zeros_like(self.model.layers[0].weight.grad[:, i])
+                        self.model.layers[0].weight.grad[:, i] = \
+                            torch.zeros_like(self.model.layers[0].weight.grad[:, i])
 
                 optimizer.step()
 
@@ -229,16 +229,18 @@ class GlemNet:
                 if val_loss < min_loss:
                     torch.save(self.model, folder_path + '/best_model.pt')
 
-                if verbose>0:
+                if verbose > 0:
                     if epoch % verbose == 0:
                         print('Learning_rate:', optimizer.param_groups[0]["lr"])
-                        print('Epoch [{}/{}], Train Loss: {:.4f}, Val Loss: {:.4f}'.format(epoch + 1, num_epochs, train_loss, val_loss))
+                        print('Epoch [{}/{}], Train Loss: {:.4f}, Val Loss: {:.4f}'.format(epoch + 1,
+                                                                                           num_epochs,
+                                                                                           train_loss, val_loss))
                         print()
             else:
                 if train_loss < min_loss:
                     torch.save(self.model, folder_path + '/best_model_WholeTraining.pt')
 
-                if verbose>0:
+                if verbose > 0:
                     if epoch % verbose == 0:
                         print('Learning_rate:', optimizer.param_groups[0]["lr"])
                         print('Epoch [{}/{}], Train Loss: {:.4f},'.format(epoch + 1, num_epochs, train_loss))
@@ -248,7 +250,7 @@ class GlemNet:
         epochs = np.arange(np_norms.shape[0]) + 1
 
         # Plot the training and validation loss
-        if verbose>0:
+        if verbose > 0:
             fig, (ax1, ax2) = plt.subplots(2, 1)
             fig.set_size_inches(15, 10)
             ax1.plot(epochs, train_losses, label='Training Loss')
@@ -272,7 +274,6 @@ class GlemNet:
             ax2.legend()
             plt.savefig(folder_path + '/norms_vs_losses.png', bbox_inches='tight')
 
-
         if isinstance(self.val, pd.DataFrame):
             columns = ['epochs', 'training loss', 'validation loss']
         else:
@@ -290,10 +291,9 @@ class GlemNet:
 
         norms_info = pd.DataFrame(np_norms)
         norms_info.columns = self.feature_names
-        norms_info['epochs'] = list(range(1,num_epochs+1))
+        norms_info['epochs'] = list(range(1, num_epochs+1))
 
         norms_info.to_csv(folder_path+'/norms.csv')
-
 
     def evaluate_model(self, model, data_loader, criterion, device):
         model.eval()
@@ -308,10 +308,10 @@ class GlemNet:
         model.train()
         return val_loss / len(data_loader)
 
-
-    def plot_features_usage(self, title, eps):
+    def plot_features_usage(self):
+        title = 'norms'
         fig, ax = plt.subplots()
-        fig.set_size_inches(10,5)
+        fig.set_size_inches(10, 5)
         norms = self.model.compute_norms()[0]
         # Sort feature importances in descending order
         indices = np.argsort(norms)[::-1]
@@ -320,17 +320,18 @@ class GlemNet:
 
         colors = []
         for value in sorted_feature_importances:
-            if value > eps:
+            if value > self.eps:
                 colors.append('tab:blue')
             else:
                 colors.append('tab:red')
 
-        ax.bar(range(len(sorted_feature_importances)), sorted_feature_importances, tick_label=sorted_feature_names, color=colors)
-        ax.axhline(y=eps, color='r', linestyle='-')  # Adjust color and linestyle as needed
-
+        ax.bar(range(len(sorted_feature_importances)), sorted_feature_importances, tick_label=sorted_feature_names,
+               color=colors)
+        ax.axhline(y=self.eps, color='r', linestyle='-', label='threshold: '+str(self.eps))
         ax.set_xlabel('Feature')
         ax.set_ylabel(title)
         ax.grid()
+        ax.legend()
         ax.set_xticklabels(ax.get_xticklabels(), rotation=60)
         plt.tight_layout()
         plt.show()
@@ -338,7 +339,28 @@ class GlemNet:
     def predict(self):
         return self.model(torch.Tensor(self.X_test).to(self.device)).detach().squeeze().cpu().numpy()
 
+    def prune(self):
 
+        to_zero=[]
+        # add the index of the categorical variable weights which need to be zeroed
+        for tup in self.tuples:
+            cat_vec_norms = 0
+            for i in range(tup[0], tup[1]):
+                cat_vec_norms += torch.norm(self.model.layers[0].weight[:, i], p=2)
+            cat_vec_norms = cat_vec_norms / (tup[1] - tup[0])
+
+            if cat_vec_norms < self.eps:
+                for i in range(tup[0], tup[1]):
+                    to_zero.append(i)
+
+        # now the numerical variables
+        for i in range(self.tuples[-1][-1], self.model.layers[0].weight.size()[1]):
+            if torch.norm(self.model.layers[0].weight[:, i], p=2) < self.eps:
+                to_zero.append(i)
+
+        with torch.no_grad():
+            for i in to_zero:
+                self.model.layers[0].weight[:, i] = torch.zeros_like(self.model.layers[0].weight[:, i])
 
 
 # Class which defines the model
@@ -351,7 +373,8 @@ class MLP_embeddings(nn.Module):
     #   - activation function to be used by the mlp
     #   - activation function to be used by the output layer (to be chosen according to the problem)
 
-    def __init__(self, neurons_per_layer, cat_cardinality, n_numerics, hidden_activation='tanh', output_activation='sigmoid', card_reduction=0, device='cpu'):
+    def __init__(self, neurons_per_layer, cat_cardinality, n_numerics, hidden_activation='tanh',
+                 output_activation='sigmoid', card_reduction=0, device='cpu'):
         super(MLP_embeddings, self).__init__()
 
         # create multiple embeddings according to the number of categorical variables
@@ -402,9 +425,11 @@ class MLP_embeddings(nn.Module):
         for i in range(len(self.neurons_per_layer)):
             if i == 0:
                 if self.card_reduction > 0:
-                    layers_list.append(nn.Linear(sum(self.neurons_per_embedding) + self.n_numerics, self.neurons_per_layer[i]))
+                    layers_list.append(nn.Linear(sum(self.neurons_per_embedding) + self.n_numerics,
+                                                 self.neurons_per_layer[i]))
                 else:
-                    layers_list.append(nn.Linear(sum(self.cat_cardinality) + self.n_numerics, self.neurons_per_layer[i]))
+                    layers_list.append(nn.Linear(sum(self.cat_cardinality) + self.n_numerics,
+                                                 self.neurons_per_layer[i]))
             else:
                 layers_list.append(nn.Linear(self.neurons_per_layer[i - 1], self.neurons_per_layer[i]))
         return layers_list
@@ -452,7 +477,6 @@ class MLP_embeddings(nn.Module):
         for layer in self.layers:
             out = layer(out)
             out = self.hidden_activation(out)
-
 
         out = self.fc(out)
         out = self.output_activation(out)
@@ -527,9 +551,9 @@ class GroupedLassoPenalty(nn.Module):
             for i in range(self.tuples[-1][-1], self.model.layers[0].weight.size()[1]):
                 input_weight_norms += self.function(torch.norm(self.model.layers[0].weight[:, i], p=2))
 
-            Loss = avg_task_loss + input_weight_norms * self.lambda_coeff
+            loss = avg_task_loss + input_weight_norms * self.lambda_coeff
 
         else:
-            Loss = avg_task_loss
+            loss = avg_task_loss
 
-        return Loss
+        return loss
