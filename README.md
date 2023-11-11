@@ -5,7 +5,7 @@ This repository contains a methodology for integrating a feature selection mecha
 
 ## Features
 - **Compatibility**: Works seamlessly with numerical and categorical data.
-- **Optimization**: the model is trained while the subset of most informative features are selected. After the training, the model is able to make predictions using only the selected features subset.
+- **Optimization**: the model is trained while the subset of most informative features is selected. After the training, the model is able to make predictions using only the selected features subset.
 
 ## Methodology
 The methodology presented here follows a structured approach for feature selection in neural networks. The core steps include:
