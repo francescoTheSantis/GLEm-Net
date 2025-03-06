@@ -15,6 +15,3 @@ The methodology presented here follows a structured approach for feature selecti
 
 ## Usage
 For a detailed, step-by-step guide on implementing the methodology, check out example.py in the repository. This file provides a comprehensive walkthrough of the methodology's application within a neural network setting.
-
-## Contact
-For any question, please write to francesco.desantis@polito.it
