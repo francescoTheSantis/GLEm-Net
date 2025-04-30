@@ -15,3 +15,16 @@ The methodology presented here follows a structured approach for feature selecti
 
 ## Usage
 For a detailed, step-by-step guide on implementing the methodology, check out example.py in the repository. This file provides a comprehensive walkthrough of the methodology's application within a neural network setting.
+
+## Citation
+
+```
+@inproceedings{de2023glem,
+  title={GLEm-Net: Unified Framework for Data Reduction with Categorical and Numerical Features},
+  author={De Santis, Francesco and Giordano, Danilo and Mellia, Marco and Damilano, Alessia},
+  booktitle={2023 IEEE International Conference on Big Data (BigData)},
+  pages={4240--4247},
+  year={2023},
+  organization={IEEE}
+}
+```
