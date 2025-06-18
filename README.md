@@ -1,4 +1,4 @@
-# GLEm-Net
+# GLEm-Net: Unified Framework for Data Reduction with Categorical and Numerical Features
 
 ## Overview
 This repository contains a methodology for integrating a feature selection mechanism into a neural network: [GLEm-Net](https://ieeexplore.ieee.org/document/10386901). The methodology presented here is capable of handling both numerical and categorical variables, enabling efficient feature selection in neural network-based models.
