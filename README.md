@@ -29,14 +29,14 @@ For a detailed, step-by-step guide on implementing the methodology, check out ex
 }
 
 @article{DESANTIS2026115049,
-title = {GLEm-Net: Unified framework for data reduction with categorical and numerical features},
-journal = {Knowledge-Based Systems},
-volume = {334},
-pages = {115049},
-year = {2026},
-issn = {0950-7051},
-doi = {https://doi.org/10.1016/j.knosys.2025.115049},
-url = {https://www.sciencedirect.com/science/article/pii/S0950705125020878},
-author = {Francesco {De Santis} and Danilo Giordano and Marco Mellia}
+  title = {GLEm-Net: Unified framework for data reduction with categorical and numerical features},
+  journal = {Knowledge-Based Systems},
+  volume = {334},
+  pages = {115049},
+  year = {2026},
+  issn = {0950-7051},
+  doi = {https://doi.org/10.1016/j.knosys.2025.115049},
+  url = {https://www.sciencedirect.com/science/article/pii/S0950705125020878},
+  author = {Francesco {De Santis} and Danilo Giordano and Marco Mellia}
 }
 ```
